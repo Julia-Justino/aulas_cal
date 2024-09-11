@@ -1,0 +1,160 @@
+provider "aws" {
+  region = "us-east-1"
+}
+
+# Criação da VPC
+resource "aws_vpc" "minha_vpc" {
+  cidr_block = "10.0.0.0/16"
+  tags = {
+    Name = "minha-vpc"
+  }
+}
+
+# Criação da Sub-rede Pública
+resource "aws_subnet" "minha_subrede_publica" {
+  vpc_id                  = aws_vpc.minha_vpc.id
+  cidr_block              = "10.0.1.0/24"
+  map_public_ip_on_launch = true
+  availability_zone       = "us-east-1a"
+  tags = {
+    Name = "minha-subrede-publica"
+  }
+}
+
+# Criação da Sub-rede Privada
+resource "aws_subnet" "minha_subrede_privada" {
+  vpc_id                  = aws_vpc.minha_vpc.id
+  cidr_block              = "10.0.2.0/24"
+  map_public_ip_on_launch = false
+  availability_zone       = "us-east-1a"
+  tags = {
+    Name = "minha-subrede-privada"
+  }
+}
+
+# Criação do Internet Gateway
+resource "aws_internet_gateway" "igw" {
+  vpc_id = aws_vpc.minha_vpc.id
+  tags = {
+    Name = "minha-igw"
+  }
+}
+
+# Tabela de Rotas para a Sub-rede Pública
+resource "aws_route_table" "public_rt" {
+  vpc_id = aws_vpc.minha_vpc.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.igw.id
+  }
+
+  tags = {
+    Name = "public-rt"
+  }
+}
+
+# Associação da Tabela de Rotas à Sub-rede Pública
+resource "aws_route_table_association" "public_rt_assoc" {
+  subnet_id      = aws_subnet.minha_subrede_publica.id
+  route_table_id = aws_route_table.public_rt.id
+}
+
+# Elastic IP para o NAT Gateway
+resource "aws_eip" "nat_eip" {
+  vpc = true
+}
+
+# Criação do NAT Gateway na Sub-rede Pública
+resource "aws_nat_gateway" "nat" {
+  allocation_id = aws_eip.nat_eip.id
+  subnet_id     = aws_subnet.minha_subrede_publica.id
+  tags = {
+    Name = "minha-nat-gateway"
+  }
+}
+
+# Tabela de Rotas para a Sub-rede Privada
+resource "aws_route_table" "private_rt" {
+  vpc_id = aws_vpc.minha_vpc.id
+
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.nat.id
+  }
+
+  tags = {
+    Name = "private-rt"
+  }
+}
+
+# Associação da Tabela de Rotas à Sub-rede Privada
+resource "aws_route_table_association" "private_rt_assoc" {
+  subnet_id      = aws_subnet.minha_subrede_privada.id
+  route_table_id = aws_route_table.private_rt.id
+}
+
+# Criação do Grupo de Segurança
+resource "aws_security_group" "sg_terraform_aula2" {
+  vpc_id      = aws_vpc.minha_vpc.id
+  name        = "sg_terraform_aula2"
+  description = "Security group for EC2 instance"
+
+  ingress {
+    from_port   = 22  
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+# Instância EC2 na Sub-rede Pública
+resource "aws_instance" "ec2-terraform-aula2" {
+  ami           = "ami-0e86e20dae9224db8"
+  instance_type = "t2.small"
+  subnet_id     = aws_subnet.minha_subrede_publica.id
+  associate_public_ip_address = true
+  tags = {
+    Name = "ec2-terraform-aula2-publica"
+  }
+  ebs_block_device {
+    device_name = "/dev/sda1"
+    volume_size = 30
+    volume_type = "gp3"
+  }
+
+  security_groups = [ aws_security_group.sg_terraform_aula2.id ]
+  key_name = "aula2Terraform"
+}
+
+# Instância EC2 na Sub-rede Privada
+resource "aws_instance" "ec2-terraform-privada" {
+  ami           = "ami-0e86e20dae9224db8"
+  instance_type = "t2.small"
+  subnet_id     = aws_subnet.minha_subrede_privada.id
+  associate_public_ip_address = false
+  tags = {
+    Name = "ec2-terraform-privada"
+  }
+  ebs_block_device {
+    device_name = "/dev/sda1"
+    volume_size = 30
+    volume_type = "gp3"
+  }
+  security_groups = [ aws_security_group.sg_terraform_aula2.id ]
+  key_name = "aula2Terraform"
+}
+
+# Variável para Porta HTTP
+variable "porta_http" {
+  description = "value of port 80"
+  default = 80
+  type = number
+}
